@@ -2,6 +2,8 @@
 
 A standalone, Omarchy-themed Quickshell control center.
 
+![Omarchy System Settings category grid](docs/system-settings.png)
+
 ## Current features
 
 - Classic System Preferences-style icon grid
