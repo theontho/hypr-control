@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+artifacts/
+standalone/BuiltinPanels/
+standalone/Commons
+standalone/Ui

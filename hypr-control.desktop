@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=System Settings
+GenericName=Omarchy Control Center
+Comment=Configure hardware, input, appearance, power, and system settings
+Exec=/home/mac/.local/bin/hypr-control
+Icon=preferences-system
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=Omarchy;Hyprland;settings;hardware;mouse;keyboard;network;Bluetooth;sound;display;power;
+StartupNotify=true
