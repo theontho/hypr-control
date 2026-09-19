@@ -22,11 +22,17 @@ ShellRoot {
     displays: "Displays",
     graphics: "Graphics & Video",
     appearance: "Appearance",
+    backgrounds: "Desktop Background",
+    controllers: "Game Controllers",
+    printers: "Printers & Scanners",
     power: "Power & Battery",
     storage: "Storage",
     datetime: "Date & Time",
     nightlight: "Night Light",
     security: "Security & Lock",
+    screensaver: "Screensaver",
+    startup: "Startup",
+    locale: "Language & Region",
     updates: "Updates",
     about: "About"
   })
@@ -35,6 +41,9 @@ ShellRoot {
     if (page === "home") return "pages/HomePage.qml"
     if (page === "mouse") return "pages/MousePage.qml"
     if (page === "keyboard") return "pages/KeyboardPage.qml"
+    if (page === "backgrounds" || page === "controllers" || page === "printers"
+        || page === "screensaver" || page === "startup" || page === "locale")
+      return "pages/SystemToolsPage.qml"
     if (page === "network" || page === "tailscale" || page === "bluetooth"
         || page === "sound" || page === "displays")
       return "pages/BuiltinPanelPage.qml"

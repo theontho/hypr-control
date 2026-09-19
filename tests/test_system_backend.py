@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from hyprcontrol.backend import HyprControlError
+from hyprcontrol.cli import build_parser
 from hyprcontrol.system_backend import SystemBackend
 
 
@@ -14,6 +15,14 @@ def completed(command, returncode=0, stdout="", stderr=""):
 
 
 class SystemBackendTests(unittest.TestCase):
+    def test_startup_cli_keeps_subcommand_and_command_value_separate(self):
+        args = build_parser().parse_args(
+            ["startup-command", "--command", "hyprsunset", "--enabled", "true"]
+        )
+
+        self.assertEqual(args.command, "startup-command")
+        self.assertEqual(args.startup_command, "hyprsunset")
+
     def test_mutating_actions_run_expected_commands(self):
         calls = []
 
@@ -106,6 +115,10 @@ class SystemBackendTests(unittest.TestCase):
             backend.launch_tool("timezone")
             backend.launch_tool("updates")
             backend.launch_tool("themes")
+            backend.launch_tool("printers")
+            backend.launch_tool("scanner")
+            backend.launch_tool("controllers")
+            backend.launch_tool("screensaver")
 
         self.assertEqual(
             calls,
@@ -122,6 +135,26 @@ class SystemBackendTests(unittest.TestCase):
                 ],
                 [
                     "/usr/bin/tool",
+                ],
+                [
+                    "hyprctl",
+                    "eval",
+                    'hl.dispatch(hl.dsp.exec_cmd("\\"system-config-printer\\""))',
+                ],
+                [
+                    "hyprctl",
+                    "eval",
+                    'hl.dispatch(hl.dsp.exec_cmd("\\"simple-scan\\""))',
+                ],
+                [
+                    "hyprctl",
+                    "eval",
+                    'hl.dispatch(hl.dsp.exec_cmd("\\"steam\\" \\"steam://open/controller_base\\""))',
+                ],
+                [
+                    "hyprctl",
+                    "eval",
+                    'hl.dispatch(hl.dsp.exec_cmd("\\"omarchy\\" \\"launch\\" \\"screensaver\\""))',
                 ],
             ],
         )
@@ -168,6 +201,168 @@ class SystemBackendTests(unittest.TestCase):
         with patch("hyprcontrol.system_backend.shutil.which", return_value=None):
             with self.assertRaisesRegex(HyprControlError, "unavailable"):
                 backend.launch_tool("timezone")
+
+    def test_backgrounds_are_discovered_and_only_catalog_entries_can_be_applied(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            theme_backgrounds = home / ".local/state/omarchy/current/theme/backgrounds"
+            custom_backgrounds = home / ".config/omarchy/backgrounds/Test Theme"
+            theme_backgrounds.mkdir(parents=True)
+            custom_backgrounds.mkdir(parents=True)
+            first = theme_backgrounds / "one.png"
+            second = custom_backgrounds / "two.jpg"
+            first.write_bytes(b"png")
+            second.write_bytes(b"jpg")
+            (home / ".local/state/omarchy/current/background").symlink_to(first)
+            backend = SystemBackend(home=home)
+            calls = []
+
+            def runner(command):
+                calls.append(command)
+                if command == ["omarchy", "theme", "current"]:
+                    return completed(command, stdout="Test Theme\n")
+                return completed(command)
+
+            with patch("hyprcontrol.system_backend.run_command", side_effect=runner):
+                snapshot = backend._background_snapshot()
+                backend.set_background(str(second))
+                with self.assertRaises(HyprControlError):
+                    backend.set_background(str(home / "unknown.png"))
+
+        self.assertEqual([item["name"] for item in snapshot["available"]], ["one", "two"])
+        self.assertEqual(snapshot["current"], str(first))
+        self.assertIn(["omarchy", "theme", "bg", "set", str(second)], calls)
+
+    def test_screensaver_effect_is_validated_and_saved(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            backend = SystemBackend(home=home)
+            backend.set_screensaver_effect("matrix")
+            saved = json.loads(
+                (home / ".config/omarchy/screensaver.json").read_text(encoding="utf-8")
+            )
+
+            self.assertEqual(saved, {"effect": "matrix"})
+            self.assertEqual(backend._screensaver_snapshot()["effect"], "matrix")
+            with self.assertRaises(HyprControlError):
+                backend.set_screensaver_effect("not-an-effect")
+
+    def test_locale_is_validated_before_elevated_apply(self):
+        calls = []
+        backend = SystemBackend()
+
+        def runner(command):
+            calls.append(command)
+            if command == ["localectl", "list-locales"]:
+                return completed(command, stdout="C.UTF-8\nen_US.UTF-8\n")
+            return completed(command)
+
+        with (
+            patch("hyprcontrol.system_backend.run_command", side_effect=runner),
+            patch("hyprcontrol.system_backend.shutil.which", return_value="/usr/bin/pkexec"),
+        ):
+            backend.set_locale("en_US.UTF-8")
+            with self.assertRaises(HyprControlError):
+                backend.set_locale("xx_YY.UTF-8")
+
+        self.assertIn(
+            ["pkexec", "localectl", "set-locale", "LANG=en_US.UTF-8"],
+            calls,
+        )
+
+    def test_startup_commands_are_added_removed_and_reload_hyprland(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".config/hypr/autostart.lua"
+            path.parent.mkdir(parents=True)
+            path.write_text(
+                '-- Keep this comment.\no.launch_on_start("hyprsunset")\n',
+                encoding="utf-8",
+            )
+            calls = []
+            backend = SystemBackend(home=home)
+
+            with patch(
+                "hyprcontrol.system_backend.run_command",
+                side_effect=lambda command: calls.append(command) or completed(command),
+            ):
+                backend.set_startup_command('test-app --name "hello"', True)
+                self.assertEqual(
+                    backend._startup_snapshot()["commands"],
+                    ["hyprsunset", 'test-app --name "hello"'],
+                )
+                backend.set_startup_command("hyprsunset", False)
+
+            saved = path.read_text(encoding="utf-8")
+
+        self.assertIn("-- Keep this comment.", saved)
+        self.assertNotIn('o.launch_on_start("hyprsunset")', saved)
+        self.assertIn('o.launch_on_start("test-app --name \\"hello\\"")', saved)
+        self.assertEqual(calls.count(["hyprctl", "reload"]), 2)
+        self.assertEqual(calls.count(["hyprctl", "configerrors"]), 2)
+
+    def test_startup_update_rolls_back_when_hyprland_reports_errors(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            path = home / ".config/hypr/autostart.lua"
+            path.parent.mkdir(parents=True)
+            original = 'o.launch_on_start("hyprsunset")\n'
+            path.write_text(original, encoding="utf-8")
+            backend = SystemBackend(home=home)
+
+            def runner(command):
+                if command == ["hyprctl", "configerrors"]:
+                    return completed(command, stdout="invalid config\n")
+                return completed(command)
+
+            with (
+                patch("hyprcontrol.system_backend.run_command", side_effect=runner),
+                self.assertRaisesRegex(HyprControlError, "invalid config"),
+            ):
+                backend.set_startup_command("test-app", True)
+
+            self.assertEqual(path.read_text(encoding="utf-8"), original)
+
+    def test_printer_controller_and_keyboard_catalog_snapshots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            controller = home / "sys/class/input/js0/device"
+            controller.mkdir(parents=True)
+            (controller / "name").write_text("Test Controller\n", encoding="utf-8")
+            backend = SystemBackend(home=home)
+
+            outputs = {
+                ("lpstat", "-p", "-d"): (
+                    "printer Office is idle. enabled since today\n"
+                    "system default destination: Office\n"
+                ),
+                ("scanimage", "-L"): (
+                    "device `airscan:e0:Scanner' is a Test Scanner flatbed scanner\n"
+                ),
+                ("localectl", "list-x11-keymap-layouts"): "de\nus\n",
+                ("localectl", "list-x11-keymap-variants"): "intl\nnodeadkeys\n",
+            }
+
+            with (
+                patch.object(Path, "glob", return_value=[controller.parent]),
+                patch(
+                    "hyprcontrol.system_backend.run_command",
+                    side_effect=lambda command: completed(
+                        command, stdout=outputs.get(tuple(command), "")
+                    ),
+                ),
+                patch("hyprcontrol.system_backend.shutil.which", return_value="/usr/bin/tool"),
+            ):
+                printers = backend._printer_snapshot()
+                controllers = backend._controller_snapshot()
+                keyboard = backend._keyboard_snapshot()
+
+        self.assertEqual(printers["default"], "Office")
+        self.assertEqual(printers["printers"][0]["name"], "Office")
+        self.assertEqual(printers["scanners"][0]["name"], "Test Scanner flatbed scanner")
+        self.assertEqual(controllers["devices"][0]["name"], "Test Controller")
+        self.assertEqual(keyboard["layouts"], ["de", "us"])
+        self.assertEqual(keyboard["variants"], ["intl", "nodeadkeys"])
 
     def test_night_light_temperature_updates_shared_configs(self):
         calls = []

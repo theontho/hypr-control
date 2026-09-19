@@ -14,6 +14,16 @@ from .backend import HyprBackend, HyprControlError, run_command
 
 
 class SystemBackend:
+    SCREENSAVER_EFFECTS = (
+        "random", "beams", "binarypath", "blackhole", "bouncyballs", "bubbles",
+        "burn", "colorshift", "crumble", "decrypt", "errorcorrect", "expand",
+        "fireworks", "highlight", "laseretch", "matrix", "middleout",
+        "orbittingvolley", "overflow", "pour", "print", "rain", "randomsequence",
+        "rings", "scattered", "slice", "slide", "smoke", "spotlights", "spray",
+        "swarm", "sweep", "synthgrid", "thunderstorm", "unstable", "vhstape",
+        "waves", "wipe",
+    )
+
     def __init__(self, *, home: Path | None = None) -> None:
         self.home = home or Path.home()
         self.hypr = HyprBackend(home=self.home)
@@ -29,6 +39,12 @@ class SystemBackend:
             "displays": self._display_snapshot(),
             "graphics": self._graphics_snapshot(),
             "appearance": self._appearance_snapshot(),
+            "backgrounds": self._background_snapshot(),
+            "controllers": self._controller_snapshot(),
+            "printers": self._printer_snapshot(),
+            "screensaver": self._screensaver_snapshot(),
+            "startup": self._startup_snapshot(),
+            "locale": self._locale_snapshot(),
             "power": self._power_snapshot(),
             "storage": self._storage_snapshot(),
             "dateTime": self._date_time_snapshot(),
@@ -91,6 +107,72 @@ class SystemBackend:
         if theme not in available:
             raise HyprControlError("Unknown Omarchy theme")
         self._required(["omarchy", "theme", "set", theme])
+
+    def set_background(self, path: str) -> None:
+        requested = Path(path).expanduser().resolve()
+        available = {Path(item["path"]).resolve() for item in self._background_snapshot()["available"]}
+        if requested not in available:
+            raise HyprControlError("Unknown or unavailable background")
+        self._required(["omarchy", "theme", "bg", "set", str(requested)])
+
+    def choose_background(self) -> None:
+        command = shutil.which("omarchy-theme-bg-switcher")
+        if command is None:
+            raise HyprControlError("Required Omarchy command is unavailable: omarchy-theme-bg-switcher")
+        selected = self._required([command]).strip()
+        if selected:
+            self.set_background(selected)
+
+    def set_screensaver_effect(self, effect: str) -> None:
+        if effect not in self.SCREENSAVER_EFFECTS:
+            raise HyprControlError("Unsupported screensaver effect")
+        self._write_json_atomic(
+            self.home / ".config/omarchy/screensaver.json",
+            {"effect": effect},
+        )
+
+    def set_locale(self, locale: str) -> None:
+        if locale not in self._locale_snapshot()["available"]:
+            raise HyprControlError("Unsupported locale")
+        if shutil.which("pkexec") is None:
+            raise HyprControlError("pkexec is required to change the system locale")
+        self._required(["pkexec", "localectl", "set-locale", f"LANG={locale}"])
+
+    def set_startup_command(self, command: str, enabled: bool) -> None:
+        command = command.strip()
+        if not command or len(command) > 300 or any(char in command for char in "\r\n\0"):
+            raise HyprControlError("Startup command must be one line between 1 and 300 characters")
+
+        path = self.home / ".config/hypr/autostart.lua"
+        original = self._read_optional(path) or "-- Extra autostart processes.\n"
+        entries = self._startup_commands(original)
+        if enabled and command not in entries:
+            escaped = command.replace("\\", "\\\\").replace('"', '\\"')
+            updated = original.rstrip() + f'\no.launch_on_start("{escaped}")\n'
+        elif not enabled and command in entries:
+            updated = "\n".join(
+                line
+                for line in original.splitlines()
+                if self._startup_command_from_line(line) != command
+            ).rstrip() + "\n"
+        else:
+            return
+
+        try:
+            self._write_text_atomic(path, updated)
+            self._required(["hyprctl", "reload"])
+            errors = self._required(["hyprctl", "configerrors"]).strip()
+            if errors:
+                raise HyprControlError(errors)
+        except Exception as error:
+            self._write_text_atomic(path, original)
+            try:
+                self._required(["hyprctl", "reload"])
+            except HyprControlError:
+                pass
+            if isinstance(error, HyprControlError):
+                raise
+            raise HyprControlError(f"Could not update startup applications: {error}") from error
 
     def set_idle(self, *, screensaver_seconds: int, lock_seconds: int) -> None:
         if not 0 <= screensaver_seconds <= 86400 or not 0 <= lock_seconds <= 86400:
@@ -189,6 +271,22 @@ class SystemBackend:
                 self.set_theme(selected_theme)
             return
 
+        application_commands = {
+            "printers": ["system-config-printer"],
+            "scanner": ["simple-scan"],
+            "controllers": ["steam", "steam://open/controller_base"],
+            "screensaver": ["omarchy", "launch", "screensaver"],
+        }
+        if tool in application_commands:
+            command = application_commands[tool]
+            if shutil.which(command[0]) is None:
+                raise HyprControlError(f"Required command is unavailable: {command[0]}")
+            launch_command = " ".join(json.dumps(argument) for argument in command)
+            self._required(
+                ["hyprctl", "eval", f"hl.dispatch(hl.dsp.exec_cmd({json.dumps(launch_command)}))"]
+            )
+            return
+
         commands = {
             "timezone": [
                 "omarchy-launch-floating-terminal-with-presentation",
@@ -229,9 +327,7 @@ class SystemBackend:
     def _keyboard_snapshot(self) -> dict:
         state = self.hypr.load_state()
         saved = state.get("keyboard")
-        if saved:
-            return saved.copy()
-        return {
+        result = saved.copy() if saved else {
             "layout": self._hypr_string("input:kb_layout", "us"),
             "variant": self._hypr_string("input:kb_variant", ""),
             "options": self._hypr_string("input:kb_options", ""),
@@ -239,6 +335,9 @@ class SystemBackend:
             "repeat_delay": self._hypr_number("input:repeat_delay", 250),
             "numlock": self._hypr_bool("input:numlock_by_default", True),
         }
+        result["layouts"] = self._command_lines(["localectl", "list-x11-keymap-layouts"])
+        result["variants"] = self._command_lines(["localectl", "list-x11-keymap-variants"])
+        return result
 
     def _network_snapshot(self) -> dict:
         rows = []
@@ -370,6 +469,107 @@ class SystemBackend:
             if line.strip()
         ]
         return {"theme": theme, "themes": themes}
+
+    def _background_snapshot(self) -> dict:
+        current_link = self.home / ".local/state/omarchy/current/background"
+        current = str(current_link.resolve()) if current_link.exists() else ""
+        theme_name = self._optional(["omarchy", "theme", "current"]).strip()
+        directories = [
+            self.home / ".local/state/omarchy/current/theme/backgrounds",
+            self.home / ".config/omarchy/backgrounds" / theme_name,
+        ]
+        supported = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp"}
+        available = []
+        seen = set()
+        for directory in directories:
+            if not directory.is_dir():
+                continue
+            for path in sorted(directory.iterdir(), key=lambda item: item.name.casefold()):
+                try:
+                    resolved = path.resolve()
+                except OSError:
+                    continue
+                if not resolved.is_file() or resolved.suffix.lower() not in supported:
+                    continue
+                key = str(resolved)
+                if key in seen:
+                    continue
+                seen.add(key)
+                available.append({"name": path.stem, "path": key})
+        return {"current": current, "available": available}
+
+    def _controller_snapshot(self) -> dict:
+        controllers = []
+        for path in sorted(Path("/sys/class/input").glob("js*")):
+            name = self._read_sysfs(path / "device/name") or path.name
+            controllers.append({"device": f"/dev/input/{path.name}", "name": name})
+        return {
+            "devices": controllers,
+            "managerAvailable": shutil.which("steam") is not None,
+        }
+
+    def _printer_snapshot(self) -> dict:
+        output = self._optional(["lpstat", "-p", "-d"])
+        printers = []
+        default = ""
+        for line in output.splitlines():
+            match = re.match(r"printer\s+(\S+)\s+(.*)", line)
+            if match:
+                printers.append({"name": match.group(1), "status": match.group(2)})
+            elif line.startswith("system default destination:"):
+                default = line.split(":", 1)[1].strip()
+        scanners = []
+        for line in self._optional(["scanimage", "-L"]).splitlines():
+            match = re.match(r"device [`'](.+?)[`'] is a (.+)", line)
+            if match:
+                scanners.append({"device": match.group(1), "name": match.group(2)})
+        return {
+            "printers": printers,
+            "default": default,
+            "scanners": scanners,
+            "printerManagerAvailable": shutil.which("system-config-printer") is not None,
+            "scannerManagerAvailable": shutil.which("simple-scan") is not None,
+        }
+
+    def _screensaver_snapshot(self) -> dict:
+        path = self.home / ".config/omarchy/screensaver.json"
+        effect = "random"
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+            candidate = str(saved.get("effect", "random"))
+            if candidate in self.SCREENSAVER_EFFECTS:
+                effect = candidate
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {"effect": effect, "effects": list(self.SCREENSAVER_EFFECTS)}
+
+    def _startup_snapshot(self) -> dict:
+        content = self._read_optional(self.home / ".config/hypr/autostart.lua") or ""
+        return {"commands": self._startup_commands(content)}
+
+    def _locale_snapshot(self) -> dict:
+        status = self._optional(["localectl", "status"])
+        match = re.search(r"System Locale:\s+LANG=(\S+)", status)
+        current = match.group(1) if match else os.environ.get("LANG", "C.UTF-8")
+        return {"current": current, "available": self._command_lines(["localectl", "list-locales"])}
+
+    def _command_lines(self, command: list[str]) -> list[str]:
+        return [line.strip() for line in self._optional(command).splitlines() if line.strip()]
+
+    @staticmethod
+    def _startup_command_from_line(line: str) -> str | None:
+        match = re.match(r'^\s*o\.launch_on_start\("((?:\\.|[^"])*)"\)\s*$', line)
+        if not match:
+            return None
+        return match.group(1).replace('\\"', '"').replace("\\\\", "\\")
+
+    @classmethod
+    def _startup_commands(cls, content: str) -> list[str]:
+        return [
+            command
+            for line in content.splitlines()
+            if (command := cls._startup_command_from_line(line)) is not None
+        ]
 
     def _power_snapshot(self) -> dict:
         output = self._optional(["powerprofilesctl", "list"])

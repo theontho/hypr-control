@@ -69,6 +69,20 @@ def build_parser() -> argparse.ArgumentParser:
     theme = subparsers.add_parser("theme-set", help="Apply an Omarchy theme")
     theme.add_argument("--theme", required=True)
 
+    background = subparsers.add_parser("background-set", help="Apply a desktop background")
+    background.add_argument("--path", required=True)
+    subparsers.add_parser("background-picker", help="Choose and apply a desktop background")
+
+    screensaver = subparsers.add_parser("screensaver-effect", help="Set the screensaver effect")
+    screensaver.add_argument("--effect", required=True)
+
+    locale = subparsers.add_parser("locale-set", help="Set the system locale")
+    locale.add_argument("--locale", required=True)
+
+    startup = subparsers.add_parser("startup-command", help="Enable or disable a startup command")
+    startup.add_argument("--command", dest="startup_command", required=True)
+    startup.add_argument("--enabled", choices=("true", "false"), required=True)
+
     idle = subparsers.add_parser("idle-apply", help="Apply screensaver and lock timers")
     idle.add_argument("--screensaver", type=int, required=True)
     idle.add_argument("--lock", type=int, required=True)
@@ -81,7 +95,11 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("nightlight-toggle", help="Toggle night light")
 
     launch = subparsers.add_parser("launch-tool", help="Open an existing Omarchy settings workflow")
-    launch.add_argument("--tool", choices=("timezone", "updates", "themes"), required=True)
+    launch.add_argument(
+        "--tool",
+        choices=("timezone", "updates", "themes", "printers", "scanner", "controllers", "screensaver"),
+        required=True,
+    )
 
     return parser
 
@@ -148,6 +166,21 @@ def main(argv: list[str] | None = None) -> int:
             result = {"ok": True}
         elif args.command == "theme-set":
             system.set_theme(args.theme)
+            result = {"ok": True}
+        elif args.command == "background-set":
+            system.set_background(args.path)
+            result = {"ok": True}
+        elif args.command == "background-picker":
+            system.choose_background()
+            result = {"ok": True}
+        elif args.command == "screensaver-effect":
+            system.set_screensaver_effect(args.effect)
+            result = {"ok": True}
+        elif args.command == "locale-set":
+            system.set_locale(args.locale)
+            result = {"ok": True}
+        elif args.command == "startup-command":
+            system.set_startup_command(args.startup_command, args.enabled == "true")
             result = {"ok": True}
         elif args.command == "idle-apply":
             system.set_idle(

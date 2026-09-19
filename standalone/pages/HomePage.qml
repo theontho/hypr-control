@@ -27,11 +27,17 @@ ScrollView {
     { page: "displays", icon: "󰍹", title: "Displays", subtitle: "Resolution and scale" },
     { page: "graphics", icon: "󰢮", title: "Graphics & Video", subtitle: "GPU and cameras" },
     { page: "appearance", icon: "󰏘", title: "Appearance", subtitle: "Theme and styling" },
+    { page: "backgrounds", icon: "󰸉", title: "Desktop Background", subtitle: "Wallpaper selection" },
+    { page: "controllers", icon: "󰊴", title: "Game Controllers", subtitle: "Connected gamepads" },
+    { page: "printers", icon: "󰐪", title: "Printers & Scanners", subtitle: "Print and scan devices" },
     { page: "power", icon: "󰁹", title: "Power & Battery", subtitle: "Profiles and health" },
     { page: "storage", icon: "󰋊", title: "Storage", subtitle: "Disk usage" },
     { page: "datetime", icon: "󰃰", title: "Date & Time", subtitle: "Timezone and sync" },
     { page: "nightlight", icon: "󰖔", title: "Night Light", subtitle: "Warmth and display tint" },
     { page: "security", icon: "󰒃", title: "Security & Lock", subtitle: "Idle and lock timers" },
+    { page: "screensaver", icon: "󰒲", title: "Screensaver", subtitle: "Effect and preview" },
+    { page: "startup", icon: "󰒓", title: "Startup", subtitle: "Login applications" },
+    { page: "locale", icon: "󰗊", title: "Language & Region", subtitle: "System locale" },
     { page: "updates", icon: "󰚰", title: "Updates", subtitle: "System maintenance" },
     { page: "about", icon: "󰋼", title: "About", subtitle: "System information" }
   ]

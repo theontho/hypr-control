@@ -47,19 +47,25 @@ ScrollView {
     spacing: Style.space(16)
 
     PanelSectionHeader { text: "LAYOUT"; foreground: Color.foreground }
-    TextField {
+    SearchableDropdown {
       width: parent.width
-      text: root.layoutValue
+      label: "KEYBOARD LAYOUT"
+      value: root.layoutValue
+      options: root.data.layouts || []
       placeholderText: "us"
-      onTextChanged: root.layoutValue = text
+      onChanged: function(value) {
+        root.layoutValue = value
+        root.variantValue = ""
+      }
     }
 
-    PanelSectionHeader { text: "VARIANT"; foreground: Color.foreground }
-    TextField {
+    SearchableDropdown {
       width: parent.width
-      text: root.variantValue
-      placeholderText: "Optional, for example intl"
-      onTextChanged: root.variantValue = text
+      label: "VARIANT"
+      value: root.variantValue
+      options: [""].concat(root.data.variants || [])
+      placeholderText: "Search variants..."
+      onChanged: function(value) { root.variantValue = value }
     }
 
     PanelSectionHeader { text: "XKB OPTIONS"; foreground: Color.foreground }

@@ -1,0 +1,62 @@
+#!/bin/bash
+set -u
+
+config="$HOME/.config/omarchy/screensaver.json"
+effect="random"
+if [[ -f $config ]] && command -v jq >/dev/null 2>&1; then
+  effect=$(jq -r '.effect // "random"' "$config" 2>/dev/null || printf 'random')
+fi
+
+case "$effect" in
+  random|beams|binarypath|blackhole|bouncyballs|bubbles|burn|colorshift|crumble|decrypt|errorcorrect|expand|fireworks|highlight|laseretch|matrix|middleout|orbittingvolley|overflow|pour|print|rain|randomsequence|rings|scattered|slice|slide|smoke|spotlights|spray|swarm|sweep|synthgrid|thunderstorm|unstable|vhstape|waves|wipe) ;;
+  *) effect="random" ;;
+esac
+
+screensaver_in_focus() {
+  hyprctl activewindow -j | jq -e '.class == "org.omarchy.screensaver"' >/dev/null 2>&1
+}
+
+exit_screensaver() {
+  hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null ||
+    hyprctl keyword cursor:invisible false &>/dev/null || true
+  [[ -n ${effect_pid:-} ]] && kill "$effect_pid" 2>/dev/null || true
+  exit 0
+}
+
+trap exit_screensaver SIGINT SIGTERM SIGHUP SIGQUIT
+printf '\033]11;rgb:00/00/00\007'
+hyprctl eval 'hl.config({ cursor = { invisible = true } })' &>/dev/null ||
+  hyprctl keyword cursor:invisible true &>/dev/null
+
+tty=$(tty 2>/dev/null)
+deadline=$((SECONDS + 2))
+while ((SECONDS < deadline)) && [[ $(stty size 2>/dev/null) == "24 80" ]]; do
+  sleep 0.02
+done
+
+while true; do
+  args=(
+    -i "$HOME/.config/omarchy/branding/screensaver.txt"
+    --frame-rate 120
+    --canvas-width 0
+    --canvas-height 0
+    --reuse-canvas
+    --anchor-canvas c
+    --anchor-text c
+    --no-eol
+    --no-restore-cursor
+  )
+  if [[ $effect == random ]]; then
+    args+=(--random-effect)
+  else
+    args+=("$effect")
+  fi
+  ttfx "${args[@]}" &
+  effect_pid=$!
+
+  while kill -0 "$effect_pid" 2>/dev/null; do
+    if read -n1 -t 1 || ! screensaver_in_focus; then
+      exit_screensaver
+    fi
+  done
+done

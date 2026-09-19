@@ -10,12 +10,17 @@ A standalone, Omarchy-themed Quickshell control center.
 - Embedded copies of Omarchy's first-party Network, Bluetooth, Audio, Display, and Tailscale panels
 - Mouse visualization and draggable acceleration-curve editor
 - Per-device adaptive, flat, Windows-style, macOS-style, and custom pointer profiles
-- Keyboard layout, repeat, XKB options, and Num Lock
+- Searchable keyboard layout and variant pickers, repeat controls, XKB options, and Num Lock
 - Network interfaces, Wi-Fi power, Tailscale status/peers, Bluetooth power and paired devices
 - Sound volume, mute, inputs, outputs, and default-device selection
 - Display information and persistent scaling
 - Graphics adapters and camera inventory
-- Omarchy appearance/theme selection
+- Omarchy appearance/theme selection and visual desktop-background control
+- Game-controller discovery with a shortcut to Steam controller settings
+- Printer and scanner discovery with native management-app shortcuts
+- Selectable terminal screensaver effects with live preview
+- Login startup-command management with Hyprland validation and rollback
+- Searchable system locale selection through PolicyKit
 - Power profiles plus conditional battery status, health, and cycle count
 - Night-light toggle and shared Hyprsunset/Stream Deck Kelvin setting
 - Storage, date/time, security/idle, updates, and system information
